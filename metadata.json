@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Live Avatar",
+  "description": "A real-time, voice-interactive AI agent with an animated face that reacts to speech.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
