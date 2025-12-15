@@ -1,0 +1,113 @@
+import { Canvas, useFrame, useGraph } from '@react-three/fiber'
+import { Environment, useGLTF, Html, useProgress } from '@react-three/drei'
+import { useRef, useEffect, useMemo, Suspense } from 'react'
+import * as THREE from 'three'
+import styles from "./Avatar.module.css";
+
+// Standard Ready Player Me Avatar
+const AVATAR_URL = "https://models.readyplayer.me/69407980e37c2412efd1e8f8.glb";
+
+// Preload the model
+useGLTF.preload(AVATAR_URL)
+
+function Loader() {
+  const { progress } = useProgress()
+  return <Html center><div style={{ color: 'black' }}>{progress.toFixed(0)}% loaded</div></Html>
+}
+
+function Human({ volume }: { volume: number }) {
+  // Add error handling for GLTF loading
+  const { scene } = useGLTF(AVATAR_URL, true) // true = useDraco
+  const { nodes } = useGraph(scene)
+
+  const headMeshRef = useRef<THREE.Mesh | null>(null)
+  const teethMeshRef = useRef<THREE.Mesh | null>(null)
+
+  const blinkRef = useRef({ isClosed: false, nextBlinkTime: 0 })
+
+  useEffect(() => {
+    // Center model - RPM models usually need Y adjustment
+    // Reset scale to ensure visibility
+    scene.position.set(0, -1.6, 0)
+    scene.rotation.set(0, 0, 0)
+    scene.scale.set(1, 1, 1)
+
+    console.log("Scene loaded:", scene) // Debug Log
+
+    // Find Head Mesh
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        if (obj.name.includes('Head') || obj.name.includes('Wolf3D_Head')) {
+          headMeshRef.current = obj
+          console.log("Found head:", obj.name)
+        }
+        if (obj.name.includes('Teeth')) {
+          teethMeshRef.current = obj
+        }
+      }
+    })
+  }, [scene])
+
+  useFrame((state) => {
+    const time = state.clock.elapsedTime
+
+    // Idle Animation
+    const headGroup = scene.getObjectByName('Head') || scene.getObjectByName('Wolf3D_Head');
+    if (headGroup) {
+      headGroup.rotation.y = Math.sin(time * 0.5) * 0.05
+      headGroup.rotation.x = Math.sin(time * 0.2) * 0.02
+    }
+
+    // Lip Sync
+    const targetMouthOpen = THREE.MathUtils.lerp(0, 1, Math.min(volume * 4, 1));
+    [headMeshRef.current, teethMeshRef.current].forEach(mesh => {
+      if (mesh?.morphTargetInfluences && mesh.morphTargetDictionary) {
+        const index = mesh.morphTargetDictionary['viseme_aa']
+        if (index !== undefined) {
+          mesh.morphTargetInfluences[index] = THREE.MathUtils.lerp(mesh.morphTargetInfluences[index], targetMouthOpen, 0.5)
+        }
+      }
+    })
+
+    // Blinking
+    if (time > blinkRef.current.nextBlinkTime) {
+      blinkRef.current.isClosed = true
+      blinkRef.current.nextBlinkTime = time + 2 + Math.random() * 4
+      setTimeout(() => { blinkRef.current.isClosed = false }, 100)
+    }
+
+    const blinkValue = blinkRef.current.isClosed ? 1 : 0;
+    if (headMeshRef.current?.morphTargetInfluences && headMeshRef.current.morphTargetDictionary) {
+      const leftIndex = headMeshRef.current.morphTargetDictionary['eyeBlinkLeft']
+      const rightIndex = headMeshRef.current.morphTargetDictionary['eyeBlinkRight']
+      if (leftIndex !== undefined && rightIndex !== undefined) {
+        const val = THREE.MathUtils.lerp(headMeshRef.current.morphTargetInfluences[leftIndex], blinkValue, 0.4)
+        headMeshRef.current.morphTargetInfluences[leftIndex] = val
+        headMeshRef.current.morphTargetInfluences[rightIndex] = val
+      }
+    }
+  })
+
+  return <primitive object={scene} />
+}
+
+export default function Avatar3D({ volume }: { volume: number }) {
+  return (
+    <div className={styles.avatarContainer}>
+      <Canvas
+        camera={{ position: [0, 0.2, 0.8], fov: 45 }} // Adjusted camera
+        style={{ width: "100%", height: "100%" }}
+        onCreated={() => console.log("Canvas created")} // Debug Log
+      >
+        <ambientLight intensity={0.6} />
+        <spotLight position={[5, 10, 5]} angle={0.5} penumbra={1} intensity={1} />
+        <pointLight position={[-5, 0, 5]} intensity={0.4} />
+        <Environment preset="studio" />
+
+        <Suspense fallback={<Loader />}>
+          <Human volume={volume} />
+        </Suspense>
+      </Canvas>
+    </div>
+  );
+}
