@@ -1,0 +1,132 @@
+import { Canvas, useFrame } from '@react-three/fiber'
+import { Environment, RoundedBox } from '@react-three/drei'
+import { useRef, useMemo } from 'react'
+import * as THREE from 'three'
+import styles from "./Avatar.module.css";
+
+function Robot({ volume }: { volume: number }) {
+  const headRef = useRef<THREE.Group>(null)
+  const mouthBarsRef = useRef<(THREE.Mesh | null)[]>([])
+  const leftEyeRef = useRef<THREE.Mesh>(null)
+  const rightEyeRef = useRef<THREE.Mesh>(null)
+
+  // Blink state ref
+  const blinkRef = useRef({
+    isClosed: false,
+    nextBlinkTime: 0
+  })
+
+  useFrame((state) => {
+    const time = state.clock.elapsedTime
+
+    // 1. Floating & Idle Sway
+    if (headRef.current) {
+      headRef.current.position.y = Math.sin(time * 1.5) * 0.08 // Float up/down
+      headRef.current.rotation.y = Math.sin(time * 0.5) * 0.05 // Subtle head turn
+      headRef.current.rotation.x = Math.sin(time * 0.7) * 0.02 // Subtle nod
+    }
+
+    // 2. Mouth Lip Sync (Dynamic Bar)
+    // 2. Mouth Lip Sync (Dynamic Multi-Bar)
+    if (mouthBarsRef.current.length === 5) {
+      const coef = 1 + volume * 5
+
+      mouthBarsRef.current.forEach((bar, i) => {
+        if (bar) {
+          // Calculate wave based on time and index for "alive" feel
+          const wave = Math.sin(time * 10 + i * 1.5) * 0.05 // Tiny amplitude
+          // Center bars react more to volume
+          const reactivity = [0.1, 0.4, 0.8, 0.4, 0.1][i]
+
+          // Very tight animation
+          const targetScaleY = 0.2 + Math.max(0, wave) + (volume * 1.5 * reactivity)
+          bar.scale.y = THREE.MathUtils.lerp(bar.scale.y, targetScaleY, 0.4)
+
+          // Pulse color intensity
+          const material = bar.material as THREE.MeshStandardMaterial
+          material.emissiveIntensity = THREE.MathUtils.lerp(material.emissiveIntensity, 1 + volume * 8, 0.3)
+        }
+      })
+    }
+
+    // 3. Blinking Logic
+    if (time > blinkRef.current.nextBlinkTime) {
+      blinkRef.current.isClosed = true
+      blinkRef.current.nextBlinkTime = time + 2 + Math.random() * 3 // Random blink 2-5s
+      // Reopen after 150ms
+      setTimeout(() => { blinkRef.current.isClosed = false }, 150)
+    }
+
+    // Animate Eyelids (Scale Y)
+    const targetEyeScale = blinkRef.current.isClosed ? 0.05 : 1
+    if (leftEyeRef.current) leftEyeRef.current.scale.y = THREE.MathUtils.lerp(leftEyeRef.current.scale.y, targetEyeScale, 0.5)
+    if (rightEyeRef.current) rightEyeRef.current.scale.y = THREE.MathUtils.lerp(rightEyeRef.current.scale.y, targetEyeScale, 0.5)
+  })
+
+  // Reusable Materials
+  const metalMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+    color: "#222", roughness: 0.2, metalness: 0.9
+  }), [])
+
+  const glassMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+    color: "#111", roughness: 0.1, metalness: 1.0
+  }), [])
+
+  const glowMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+    color: "#00E0FF", emissive: "#00E0FF", emissiveIntensity: 2, toneMapped: false
+  }), [])
+
+  return (
+    <group ref={headRef}>
+      {/* Head Chassis */}
+      <RoundedBox args={[1.5, 1.3, 1]} radius={0.4} smoothness={4} material={metalMaterial} />
+
+      {/* Dark Glass Faceplate */}
+      <RoundedBox args={[1.2, 0.9, 0.1]} radius={0.15} position={[0, 0, 0.52]} smoothness={2} material={glassMaterial} />
+
+      {/* Eyes Container */}
+      <group position={[0, 0.15, 0.58]}>
+        <mesh ref={leftEyeRef} position={[-0.35, 0, 0]} rotation={[0, 0, Math.PI / 2]} material={glowMaterial}>
+          <capsuleGeometry args={[0.08, 0.22, 4, 8]} />
+        </mesh>
+        <mesh ref={rightEyeRef} position={[0.35, 0, 0]} rotation={[0, 0, Math.PI / 2]} material={glowMaterial}>
+          <capsuleGeometry args={[0.08, 0.22, 4, 8]} />
+        </mesh>
+      </group>
+
+      {/* Digital Mouth Visualizer (Multi-Bar Equalizer) */}
+      <group position={[0, -0.25, 0.58]}>
+        {[...Array(5)].map((_, i) => (
+          <mesh
+            key={i}
+            ref={(el) => (mouthBarsRef.current[i] = el)}
+            position={[(i - 2) * 0.15, 0, 0]}
+            material={glowMaterial}
+          >
+            <capsuleGeometry args={[0.04, 0.15, 4, 8]} />
+          </mesh>
+        ))}
+      </group>
+    </group>
+  )
+}
+
+export default function Avatar3D({ volume }: { volume: number }) {
+  return (
+    <div className={styles.avatarContainer}>
+      <Canvas
+        camera={{ position: [0, 0, 3.5], fov: 45 }}
+        style={{ width: "100%", height: "100%" }}
+      >
+        <ambientLight intensity={0.5} />
+        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} />
+        <pointLight position={[-10, -10, -10]} intensity={0.5} />
+
+        {/* Nice Scene Reflections */}
+        <Environment preset="city" />
+
+        <Robot volume={volume} />
+      </Canvas>
+    </div>
+  );
+}
